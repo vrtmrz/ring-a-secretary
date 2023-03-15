@@ -1,0 +1,33 @@
+/*
+
+This CSS file will be included with your plugin, and
+available in the app when your plugin is enabled.
+
+If your plugin does not need CSS, delete this file.
+
+*/
+.markdown-reading-view .obsidian-fx input,
+.markdown-reading-view .obsidian-fx button {
+	display: none;
+}
+
+.obsidian-fx-buttons {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	margin: auto;
+	padding: 4px;
+}
+
+.obsidian-fx * {
+	margin: auto 2px;
+}
+
+.obsidian-fx textarea {
+	flex-grow: 1;
+	min-height: 3ex;
+	resize: vertical;
+}
+/* 
+.obsidian-fx textarea .obsidian-fx input,
+.obsidian-fx button {} */
