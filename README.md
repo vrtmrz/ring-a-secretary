@@ -24,3 +24,6 @@ Note: We need the [API key of ChatGPT](https://platform.openai.com/account/api-k
 - The dialogue is saved as a code block. We can resume the conversation anytime we want.
 - Also, they are searchable.
 - Long consultation consumes many tokens. If the dialogue gets longer, starting a brand-new one is recommended.
+
+## License
+- MIT License
