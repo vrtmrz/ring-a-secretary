@@ -1,7 +1,7 @@
 {
 	"name": "ring-a-secretary",
-	"version": "0.0.1",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"version": "0.0.2",
+	"description": "Yet another ChatGPT-powered digital secretary",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",

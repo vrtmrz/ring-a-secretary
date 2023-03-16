@@ -5,11 +5,15 @@ import axios from "axios";
 interface RingASecretarySettings {
 	token: string;
 	defaultSystem: string;
+	model: string;
+	showConsumedTokens: boolean;
 }
 
 const DEFAULT_SETTINGS: RingASecretarySettings = {
 	token: "",
 	defaultSystem: "",
+	model: 'gpt-3.5-turbo-0301',
+	showConsumedTokens: false,
 }
 
 const roleSystem = "**SYSTEM**";
@@ -23,7 +27,7 @@ const MarkToRole = {
 	"**USER**": "user",
 	"**ASSISTANT**": "assistant",
 } as Record<DIALOGUE_ROLE, API_ROLE>;
-const WAIT_MARK = " WAITING FOR RESPONSE...";
+const WAIT_MARK = " <span class='ofx-thinking'></span>Please, bear with me.";
 
 export default class RingASecretaryPlugin extends Plugin {
 	settings: RingASecretarySettings;
@@ -58,18 +62,20 @@ export default class RingASecretaryPlugin extends Plugin {
 
 		const openai = new OpenAIApi(this.configuration);
 		const response = await openai.createChatCompletion({
-
-
-			model: "gpt-3.5-turbo-0301",
+			model: this.settings.model,
 			messages
 			// temperature: 0,
 			// max_tokens: 7,
 		});
 		const responseContent = response.data.choices[0].message?.content;
-		// const responseRole = response.data.choices[0].message?.role;
 		this.writeResponseToFile(responseContent ?? "");
+		if (this.settings.showConsumedTokens && response.data.usage) {
+			new Notice(`Consumed: ${response.data.usage.total_tokens} tokens`);
+		}
 
 	}
+
+	/** Write response to processing file by replacing placeholder. */
 	async writeResponseToFile(response: string) {
 		if (!this.processingFile) return;
 		const file = this.processingFile;
@@ -90,7 +96,7 @@ export default class RingASecretaryPlugin extends Plugin {
 			const fx = el.createDiv({ text: "", cls: ["obsidian-fx"] });
 			MarkdownRenderer.renderMarkdown(source, fx, sourcePath, this)
 			const ops = el.createDiv({ text: "", cls: ["obsidian-fx-buttons"] });
-			const span = ops.createSpan({ text: "USER:" });
+			const span = ops.createEl("span", { text: "USER:", cls: "label" });
 			const input = ops.createEl("textarea");
 			const submit = ops.createEl("button", { text: "🤵" });
 			const secInfo = ctx.getSectionInfo(el);
@@ -103,21 +109,25 @@ export default class RingASecretaryPlugin extends Plugin {
 			const c = new AbortController();
 			const submitFunc = async () => {
 				if (source.contains(WAIT_MARK)) {
-					new Notice("Some question is already in progress...", 5000)//TODO:MESSAGE
+					new Notice("Some question is already in progress... If not, please modify the code block directly.", 5000);
 					return
 				}
 				const f = app.vault.getAbstractFileByPath(sourcePath);
 				if (!f) {
-					new Notice("Could not edit the file", 3000);
+					new Notice("Could not find the file", 3000);
 					return;
 				}
 				if (!(f instanceof TFile)) {
-					new Notice("Could not edit the file", 3000);
+					new Notice("Could not find the file", 3000);
 					return;
 				}
 				const dataMain = source;
 				const text = input.value;
-				//TODO:ESCAPE MARKDOWN?
+				if (text.trim() == "") {
+					new Notice("Request is empty");
+					return;
+				}
+				//Note: ESCAPE MARKDOWN?
 				const newBody = `${dataMain}\n${roleUser}:${text} \n${roleAssistant}: ${WAIT_MARK}`;
 
 				await app.vault.process(f, (data) => {
@@ -131,14 +141,19 @@ export default class RingASecretaryPlugin extends Plugin {
 				this.processingFile = f;
 				setTimeout(() => {
 					this.askToAI(newBody).catch(err => {
-						this.writeResponseToFile("Something has been occurred (PLUGIN)")
+						this.writeResponseToFile(`Something has been occurred: ${err?.message}`);
+						new Notice(`Something has been occurred: ${err?.message}`);
 					});
 				}, 20);
 				app.vault.trigger("modify", f);
 			}
 			submit.addEventListener("click", submitFunc, { signal: c.signal });
 			input.addEventListener("keydown", e => {
-				console.dir(e);
+				setTimeout(() => {
+					if (input.clientHeight < input.scrollHeight) {
+						input.style.height = `${input.scrollHeight + 4}px`;
+					}
+				}, 10);
 				if (e.key == "Enter" && (e.shiftKey) && !e.isComposing) {
 					e.preventDefault();
 					submitFunc();
@@ -203,6 +218,16 @@ class RingASecretarySettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 		new Setting(containerEl)
+			.setName('Model')
+			.setDesc('Model')
+			.addText(text => text
+				.setPlaceholder('gpt-3.5-turbo-0301')
+				.setValue(this.plugin.settings.model)
+				.onChange(async (value) => {
+					this.plugin.settings.model = value;
+					await this.plugin.saveSettings();
+				}));
+		new Setting(containerEl)
 			.setName('Initial prompt')
 			.setDesc('Initial prompt; i.e., instructions and prerequisites presented to the AI.')
 			.addText(text => text
@@ -210,6 +235,14 @@ class RingASecretarySettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.defaultSystem)
 				.onChange(async (value) => {
 					this.plugin.settings.defaultSystem = value;
+					await this.plugin.saveSettings();
+				}));
+		new Setting(containerEl)
+			.setName('Show consumed tokens')
+			.setDesc('When enabled, consumed tokens will be notified after each turn.')
+			.addToggle(toggle => toggle.setValue(this.plugin.settings.showConsumedTokens)
+				.onChange(async (value) => {
+					this.plugin.settings.showConsumedTokens = value;
 					await this.plugin.saveSettings();
 				}));
 	}

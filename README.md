@@ -21,5 +21,6 @@ Note: We need the [API key of ChatGPT](https://platform.openai.com/account/api-k
 2. That is all. Now, it is time to chat!
 
 ## Memo
-- The dialogue is saved as a code block. We can continue the conversation anytime we want. 
+- The dialogue is saved as a code block. We can resume the conversation anytime we want.
 - Also, they are searchable.
+- Long consultation consumes many tokens. If the dialogue gets longer, starting a brand-new one is recommended.

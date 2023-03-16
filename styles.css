@@ -16,18 +16,82 @@ If your plugin does not need CSS, delete this file.
 	justify-content: center;
 	align-items: center;
 	margin: auto;
-	padding: 4px;
 }
 
+.obsidian-fx-buttons button {
+	flex-grow: 0;
+	padding: 4px 8px 4px 8px;
+	margin: 4px 0px 4px 4px;
+	width: auto;
+}
+
+.obsidian-fx-buttons .label {
+	margin-right: 4px;
+}
+
+.is-phone .obsidian-fx-buttons .label {
+	display: none;
+}
+
+
 .obsidian-fx * {
-	margin: auto 2px;
+	margin: auto auto;
 }
 
 .obsidian-fx textarea {
 	flex-grow: 1;
 	min-height: 3ex;
 	resize: vertical;
+	-webkit-appearance: none;
+	outline: none;
+	outline-style: none;
+	box-shadow: none;
+	border: 0px;
+	border-bottom: 1px solid var(--divider-color);
+	padding: 2px 4px;
+	font-size: var(--font-adaptive-normal);
+	font-weight: var(--normal-weight);
+	line-height: var(--line-height);
+	font-family: var(--font-editor);
 }
-/* 
-.obsidian-fx textarea .obsidian-fx input,
-.obsidian-fx button {} */
+
+.obsidian-fx textarea:focus {
+	-webkit-appearance: none;
+	outline: none;
+	outline-style: none;
+}
+
+.ofx-thinking {
+	animation: ofx-thinking-animation 1s infinite;
+}
+
+.ofx-thinking::after {
+	content: " ......";
+	animation: ofx-thinking-animation 1s infinite;
+}
+
+@keyframes ofx-thinking-animation {
+	0% {
+		content: ". .....";
+	}
+
+	20% {
+		content: ".. ....";
+	}
+
+	40% {
+		content: "... ...";
+	}
+
+	60% {
+		content: ".... ..";
+	}
+
+	80% {
+		content: "..... .";
+	}
+
+	100% {
+		content: " ...... ";
+	}
+}
