@@ -1,6 +1,6 @@
 {
 	"name": "ring-a-secretary",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "Yet another ChatGPT-powered digital secretary",
 	"main": "main.js",
 	"scripts": {
