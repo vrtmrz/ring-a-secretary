@@ -164,7 +164,7 @@ export default class RingASecretaryPlugin extends Plugin {
 
 
 		this.addCommand({
-			id: 'obs-chat-new-dialogue',
+			id: 'new-dialogue',
 			name: 'New dialogue',
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				editor.replaceSelection(
