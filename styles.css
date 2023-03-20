@@ -6,8 +6,7 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
-.markdown-reading-view .obsidian-fx input,
-.markdown-reading-view .obsidian-fx button {
+.markdown-reading-view .obsidian-fx .obsidian-fx-buttons{
 	display: none;
 }
 
@@ -33,10 +32,6 @@ If your plugin does not need CSS, delete this file.
 	display: none;
 }
 
-
-.obsidian-fx * {
-	margin: auto auto;
-}
 
 .obsidian-fx textarea {
 	flex-grow: 1;
@@ -94,4 +89,8 @@ If your plugin does not need CSS, delete this file.
 	100% {
 		content: " ...... ";
 	}
+}
+
+.callout[data-callout="consult"] {
+	--callout-icon: concierge-bell;
 }

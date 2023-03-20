@@ -28,7 +28,6 @@ const MarkToRole = {
 	"**ASSISTANT**": "assistant",
 } as Record<DIALOGUE_ROLE, API_ROLE>;
 const WAIT_MARK = " <span class='ofx-thinking'></span>Please, bear with me.";
-
 export default class RingASecretaryPlugin extends Plugin {
 	settings: RingASecretarySettings;
 	configuration: Configuration;
@@ -85,19 +84,20 @@ export default class RingASecretaryPlugin extends Plugin {
 		app.vault.trigger("modify", file);
 		this.processingFile = undefined;
 	}
+
 	async onload() {
 		await this.loadSettings();
 		axios.defaults.adapter = "http";
-		this.configuration = new Configuration({ apiKey: this.settings.token });
 
 		this.registerMarkdownCodeBlockProcessor("aichat", (source, el, ctx) => {
 
 			const sourcePath = ctx.sourcePath;
 			const fx = el.createDiv({ text: "", cls: ["obsidian-fx"] });
-			MarkdownRenderer.renderMarkdown(source, fx, sourcePath, this)
+			const renderSource = `> [!consult]+\n${source.replace(/^/mg, "> ")}`;
+			MarkdownRenderer.renderMarkdown(renderSource, fx, sourcePath, this)
 			const ops = el.createDiv({ text: "", cls: ["obsidian-fx-buttons"] });
 			const span = ops.createEl("span", { text: "USER:", cls: "label" });
-			const input = ops.createEl("textarea");
+			const input = ops.createEl("textarea", { cls: "ai-dialogue-input" });
 			const submit = ops.createEl("button", { text: "🤵" });
 			const secInfo = ctx.getSectionInfo(el);
 			ops.appendChild(span);
@@ -128,7 +128,7 @@ export default class RingASecretaryPlugin extends Plugin {
 					return;
 				}
 				//Note: ESCAPE MARKDOWN?
-				const newBody = `${dataMain}\n${roleUser}:${text} \n${roleAssistant}: ${WAIT_MARK}`;
+				const newBody = `${dataMain}\n${roleUser}: ${text} \n${roleAssistant}: ${WAIT_MARK}`;
 
 				await app.vault.process(f, (data) => {
 					const dataList = data.split("\n");
@@ -168,9 +168,9 @@ export default class RingASecretaryPlugin extends Plugin {
 			name: 'New dialogue',
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				editor.replaceSelection(
-					`${"```aichat"}
-${this.settings.defaultSystem ? `${roleSystem}:${this.settings.defaultSystem}` : `#${roleSystem}:`}
-${"```"}
+					`${"````aichat"}
+${this.settings.defaultSystem ? `${roleSystem}: ${this.settings.defaultSystem}` : `#${roleSystem}: `}
+${"````"}
 `
 				)
 			}
@@ -185,10 +185,12 @@ ${"```"}
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.configuration = new Configuration({ apiKey: this.settings.token });
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		this.configuration = new Configuration({ apiKey: this.settings.token });
 	}
 }
 
