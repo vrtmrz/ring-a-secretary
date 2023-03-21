@@ -78,10 +78,10 @@ export default class RingASecretaryPlugin extends Plugin {
 	async writeResponseToFile(response: string) {
 		if (!this.processingFile) return;
 		const file = this.processingFile;
-		await app.vault.process(file, (data) => {
+		await this.app.vault.process(file, (data) => {
 			return data.replace(WAIT_MARK, response);
 		});
-		app.vault.trigger("modify", file);
+		this.app.vault.trigger("modify", file);
 		this.processingFile = undefined;
 	}
 
@@ -112,7 +112,7 @@ export default class RingASecretaryPlugin extends Plugin {
 					new Notice("Some question is already in progress... If not, please modify the code block directly.", 5000);
 					return
 				}
-				const f = app.vault.getAbstractFileByPath(sourcePath);
+				const f = this.app.vault.getAbstractFileByPath(sourcePath);
 				if (!f) {
 					new Notice("Could not find the file", 3000);
 					return;
@@ -130,7 +130,7 @@ export default class RingASecretaryPlugin extends Plugin {
 				//Note: ESCAPE MARKDOWN?
 				const newBody = `${dataMain}\n${roleUser}: ${text} \n${roleAssistant}: ${WAIT_MARK}`;
 
-				await app.vault.process(f, (data) => {
+				await this.app.vault.process(f, (data) => {
 					const dataList = data.split("\n");
 					const dataBefore = dataList.slice(0, (secInfo?.lineStart ?? 0) + 1);
 
@@ -145,7 +145,7 @@ export default class RingASecretaryPlugin extends Plugin {
 						new Notice(`Something has been occurred: ${err?.message}`);
 					});
 				}, 20);
-				app.vault.trigger("modify", f);
+				this.app.vault.trigger("modify", f);
 			}
 			submit.addEventListener("click", submitFunc, { signal: c.signal });
 			input.addEventListener("keydown", e => {
