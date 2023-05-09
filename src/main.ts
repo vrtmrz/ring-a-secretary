@@ -1,12 +1,13 @@
 import { App, Editor, MarkdownRenderer, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile } from 'obsidian';
-import { Configuration, OpenAIApi } from "openai"
-import axios from "axios";
+// import { Configuration, OpenAIApi } from "openai"
+import { ClientStreamChatCompletionConfig, OpenAIExt } from "openai-ext";
 
 interface RingASecretarySettings {
 	token: string;
 	defaultSystem: string;
 	model: string;
 	showConsumedTokens: boolean;
+	template: string;
 }
 
 const DEFAULT_SETTINGS: RingASecretarySettings = {
@@ -14,6 +15,7 @@ const DEFAULT_SETTINGS: RingASecretarySettings = {
 	defaultSystem: "",
 	model: 'gpt-3.5-turbo-0301',
 	showConsumedTokens: false,
+	template: "##temperature\n##top_p\n##max_tokens\n##presence_penalty"
 }
 
 const roleSystem = "**SYSTEM**";
@@ -27,20 +29,45 @@ const MarkToRole = {
 	"**USER**": "user",
 	"**ASSISTANT**": "assistant",
 } as Record<DIALOGUE_ROLE, API_ROLE>;
-const WAIT_MARK = " <span class='ofx-thinking'></span>Please, bear with me.";
+const RESPONSE_START_MARK = "<span class='ofx-response-start'></span>";
+const RESPONSE_END_MARK = "<span class='ofx-thinking'></span>";
+const WAIT_MARK_INITIAL = `${RESPONSE_START_MARK}Please, bear with me.${RESPONSE_END_MARK}`;
+// const WAIT_MARK = "<span class='ofx-response-start'></span><span class='ofx-thinking'></span>Please, bear with me.";
 export default class RingASecretaryPlugin extends Plugin {
 	settings: RingASecretarySettings;
-	configuration: Configuration;
+	configuration: ClientStreamChatCompletionConfig;
 	processingFile?: TFile;
 	async askToAI(dialogue: string) {
 		const messages = [] as { role: "system" | "user" | "assistant", content: string }[];
 
 		let currentRole = "user" as "user" | "system" | "assistant";
 		let buffer = "";
+		// let temperature: number | undefine = 0; /* 0 -> 1[def] -> 2 */
+		// let top_p: number | undefine = undefined; /* 1 def */
+		// let max_tokens: number | undefined = undefined; /* inf def */
+		// let presence_penalty: number | undefined = undefined; /* -2 -> 2[def] -> 2*/
+		const options = {} as {
+			temperature?: number,
+			top_p?: number,
+			max_tokens?: number,
+			presence_penalty?: number
+		}
 		const dialogLines = dialogue.split("\n");
+		const params = ["temperature", "top_p", "max_tokens", "presence_penalty"] as ("temperature" | "top_p" | "max_tokens" | "presence_penalty")[];
 		for (const line of dialogLines) {
 			let lineBuf = line.trim();
-			if (lineBuf.startsWith("#")) continue;
+			if (lineBuf.startsWith("#")) {
+				for (const param of params) {
+					const paramHead = `##${param}`;
+					if (lineBuf.startsWith(paramHead)) {
+						const val = lineBuf.substring(paramHead.length).trim();
+						if (val != "") options[param] = Number.parseFloat(val);
+					}
+					continue;
+				}
+				continue;
+			}
+			console.dir(options);
 			let newRole = "" as "" | API_ROLE;
 			for (const [dialogueRole, APIRole] of Object.entries(MarkToRole)) {
 				if (lineBuf.startsWith(dialogueRole)) {
@@ -58,36 +85,55 @@ export default class RingASecretaryPlugin extends Plugin {
 		if (buffer != "") {
 			messages.push({ role: currentRole, content: buffer });
 		}
+		// eslint-disable-next-line @typescript-eslint/no-this-alias
+		const _this = this;
 
-		const openai = new OpenAIApi(this.configuration);
-		const response = await openai.createChatCompletion({
+		const request = OpenAIExt.streamClientChatCompletion({
+			...options,
 			model: this.settings.model,
-			messages
-			// temperature: 0,
-			// max_tokens: 7,
+			messages,
+		}, {
+			apiKey: this.settings.token,
+			allEnvsAllowed: true,
+			handler: {
+				// Content contains the string draft, which may be partial. When isFinal is true, the completion is done.
+				onContent(content, isFinal, xhr) {
+					_this.writeResponseToFile(content, isFinal);
+				},
+				onDone(xhr) {
+					//TODO
+				},
+				onError(error, status, xhr) {
+					_this.writeResponseToFile(error.message, true);
+					console.error(error);
+				},
+			},
 		});
-		const responseContent = response.data.choices[0].message?.content;
-		this.writeResponseToFile(responseContent ?? "");
-		if (this.settings.showConsumedTokens && response.data.usage) {
-			new Notice(`Consumed: ${response.data.usage.total_tokens} tokens`);
-		}
 
 	}
 
 	/** Write response to processing file by replacing placeholder. */
-	async writeResponseToFile(response: string) {
+	async writeResponseToFile(response: string, isDone: boolean) {
 		if (!this.processingFile) return;
 		const file = this.processingFile;
 		await this.app.vault.process(file, (data) => {
-			return data.replace(WAIT_MARK, response);
+			const [head, ...midArr] = data.split(RESPONSE_START_MARK);
+			const mid = midArr.join(RESPONSE_START_MARK);
+			const [oldMessage, ...tailArr] = mid.split(RESPONSE_END_MARK);
+			const tail = tailArr.join(RESPONSE_END_MARK);
+			if (isDone) {
+				this.processingFile = undefined;
+				return `${head}${response}\n${tail}`;
+			} else {
+				return `${head}${RESPONSE_START_MARK}${response}${RESPONSE_END_MARK}${tail}`;
+			}
 		});
 		this.app.vault.trigger("modify", file);
-		this.processingFile = undefined;
+
 	}
 
 	async onload() {
 		await this.loadSettings();
-		axios.defaults.adapter = "http";
 
 		this.registerMarkdownCodeBlockProcessor("aichat", (source, el, ctx) => {
 
@@ -108,7 +154,7 @@ export default class RingASecretaryPlugin extends Plugin {
 			// ctx.
 			const c = new AbortController();
 			const submitFunc = async () => {
-				if (source.contains(WAIT_MARK)) {
+				if (source.contains(RESPONSE_START_MARK)) {
 					new Notice("Some question is already in progress... If not, please modify the code block directly.", 5000);
 					return
 				}
@@ -128,7 +174,7 @@ export default class RingASecretaryPlugin extends Plugin {
 					return;
 				}
 				//Note: ESCAPE MARKDOWN?
-				const newBody = `${dataMain}\n${roleUser}: ${text} \n${roleAssistant}: ${WAIT_MARK}`;
+				const newBody = `${dataMain}\n${roleUser}: ${text}\n \n${roleAssistant}: ${WAIT_MARK_INITIAL}`;
 
 				await this.app.vault.process(f, (data) => {
 					const dataList = data.split("\n");
@@ -141,7 +187,7 @@ export default class RingASecretaryPlugin extends Plugin {
 				this.processingFile = f;
 				setTimeout(() => {
 					this.askToAI(newBody).catch(err => {
-						this.writeResponseToFile(`Something has been occurred: ${err?.message}`);
+						this.writeResponseToFile(`Something has been occurred: ${err?.message}`, true);
 						new Notice(`Something has been occurred: ${err?.message}`);
 					});
 				}, 20);
@@ -169,7 +215,7 @@ export default class RingASecretaryPlugin extends Plugin {
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				editor.replaceSelection(
 					`${"````aichat"}
-${this.settings.defaultSystem ? `${roleSystem}: ${this.settings.defaultSystem}` : `#${roleSystem}: `}
+${this.settings.template ? `${this.settings.template}\n` : ""}${this.settings.defaultSystem ? `${roleSystem}: ${this.settings.defaultSystem}` : `#${roleSystem}: `}
 ${"````"}
 `
 				)
@@ -185,12 +231,10 @@ ${"````"}
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-		this.configuration = new Configuration({ apiKey: this.settings.token });
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		this.configuration = new Configuration({ apiKey: this.settings.token });
 	}
 }
 
@@ -240,11 +284,13 @@ class RingASecretarySettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 		new Setting(containerEl)
-			.setName('Show consumed tokens')
-			.setDesc('When enabled, consumed tokens will be notified after each turn.')
-			.addToggle(toggle => toggle.setValue(this.plugin.settings.showConsumedTokens)
+			.setName('Conversation customising template')
+			.setDesc('')
+			.addTextArea(text => text
+				.setPlaceholder("")
+				.setValue(this.plugin.settings.template)
 				.onChange(async (value) => {
-					this.plugin.settings.showConsumedTokens = value;
+					this.plugin.settings.template = value;
 					await this.plugin.saveSettings();
 				}));
 	}

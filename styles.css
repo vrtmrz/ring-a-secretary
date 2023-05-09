@@ -6,7 +6,7 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
-.markdown-reading-view .obsidian-fx .obsidian-fx-buttons{
+.markdown-reading-view .obsidian-fx .obsidian-fx-buttons {
 	display: none;
 }
 
@@ -60,7 +60,7 @@ If your plugin does not need CSS, delete this file.
 	animation: ofx-thinking-animation 1s infinite;
 }
 
-.ofx-thinking::after {
+.ofx-thinking::before {
 	content: " ......";
 	animation: ofx-thinking-animation 1s infinite;
 }
