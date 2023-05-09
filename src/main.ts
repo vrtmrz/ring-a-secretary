@@ -139,7 +139,7 @@ export default class RingASecretaryPlugin extends Plugin {
 
 			const sourcePath = ctx.sourcePath;
 			const fx = el.createDiv({ text: "", cls: ["obsidian-fx"] });
-			const renderSource = `> [!consult]+\n${source.replace(/^/mg, "> ")}`;
+			const renderSource = `> [!consult]+\n${source.replace(/^(#.*)$/mg, "<!-- $1 -->").replace(/^/mg, "> ")}`;
 			MarkdownRenderer.renderMarkdown(renderSource, fx, sourcePath, this)
 			const ops = el.createDiv({ text: "", cls: ["obsidian-fx-buttons"] });
 			const span = ops.createEl("span", { text: "USER:", cls: "label" });
