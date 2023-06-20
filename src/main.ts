@@ -31,16 +31,27 @@ const MarkToRole = {
 } as Record<DIALOGUE_ROLE, API_ROLE>;
 const RESPONSE_START_MARK = "<span class='ofx-response-start'></span>";
 const RESPONSE_END_MARK = "<span class='ofx-thinking'></span>";
-const WAIT_MARK_INITIAL = `${RESPONSE_START_MARK}Please, bear with me.${RESPONSE_END_MARK}`;
+const WAIT_MARK_INITIAL = `${RESPONSE_START_MARK}Please, bear with me.`;
+
+function replaceStringBetweenMarks(source: string, newPiece: string, fromMark: string, toMark: string) {
+	const start = source.indexOf(fromMark);
+	const end = source.indexOf(toMark);
+	if (start == -1 || end == -1) return source;
+	return source.substring(0, start) + newPiece + source.substring(end + toMark.length);
+}
+
 // const WAIT_MARK = "<span class='ofx-response-start'></span><span class='ofx-thinking'></span>Please, bear with me.";
 export default class RingASecretaryPlugin extends Plugin {
 	settings: RingASecretarySettings;
 	configuration: ClientStreamChatCompletionConfig;
-	processingFile?: TFile;
-	async askToAI(dialogue: string) {
+	request?: XMLHttpRequest;
+	async askToAI(dialogue: string, targetFile: TFile, targetKey: string) {
+		if (this.request) {
+			new Notice("Some question is already in progress...", 5000);
+			return
+		}
 		const messages = [] as { role: "system" | "user" | "assistant", content: string }[];
-
-		let currentRole = "user" as "user" | "system" | "assistant";
+		let currentRole = "" as "" | "user" | "system" | "assistant";
 		let buffer = "";
 		// let temperature: number | undefine = 0; /* 0 -> 1[def] -> 2 */
 		// let top_p: number | undefine = undefined; /* 1 def */
@@ -67,7 +78,6 @@ export default class RingASecretaryPlugin extends Plugin {
 				}
 				continue;
 			}
-			console.dir(options);
 			let newRole = "" as "" | API_ROLE;
 			for (const [dialogueRole, APIRole] of Object.entries(MarkToRole)) {
 				if (lineBuf.startsWith(dialogueRole)) {
@@ -75,20 +85,21 @@ export default class RingASecretaryPlugin extends Plugin {
 					lineBuf = lineBuf.substring(dialogueRole.length + 1);
 				}
 			}
-			if (newRole != "" && buffer.trim() != "") {
-				messages.push({ role: currentRole, content: buffer.trim() });
+			if (newRole != "") {
+				if (buffer.trim() != "") {
+					messages.push({ role: currentRole == "" ? "user" : currentRole, content: buffer.trim() });
+					buffer = "";
+				}
 				currentRole = newRole;
-				buffer = "";
 			}
 			buffer += lineBuf + "\n";
 		}
-		if (buffer != "") {
-			messages.push({ role: currentRole, content: buffer });
+		if (buffer != "" && !buffer.contains(RESPONSE_START_MARK)) {
+			messages.push({ role: currentRole == "" ? "user" : currentRole, content: buffer });
 		}
 		// eslint-disable-next-line @typescript-eslint/no-this-alias
 		const _this = this;
-
-		const request = OpenAIExt.streamClientChatCompletion({
+		this.request = OpenAIExt.streamClientChatCompletion({
 			...options,
 			model: this.settings.model,
 			messages,
@@ -98,60 +109,106 @@ export default class RingASecretaryPlugin extends Plugin {
 			handler: {
 				// Content contains the string draft, which may be partial. When isFinal is true, the completion is done.
 				onContent(content, isFinal, xhr) {
-					_this.writeResponseToFile(content, isFinal);
+					_this.applyResponse(content, isFinal, targetKey, targetFile, dialogue);
 				},
 				onDone(xhr) {
 					//TODO
+					_this.request = undefined;
 				},
 				onError(error, status, xhr) {
-					_this.writeResponseToFile(error.message, true);
+					_this.applyResponse(error.message, true, targetKey, targetFile, dialogue);
 					console.error(error);
+					_this.request = undefined;
 				},
 			},
 		});
 
 	}
 
-	/** Write response to processing file by replacing placeholder. */
-	async writeResponseToFile(response: string, isDone: boolean) {
-		if (!this.processingFile) return;
-		const file = this.processingFile;
-		await this.app.vault.process(file, (data) => {
-			const [head, ...midArr] = data.split(RESPONSE_START_MARK);
-			const mid = midArr.join(RESPONSE_START_MARK);
-			const [oldMessage, ...tailArr] = mid.split(RESPONSE_END_MARK);
-			const tail = tailArr.join(RESPONSE_END_MARK);
-			if (isDone) {
-				this.processingFile = undefined;
-				return `${head}${response}\n${tail}`;
-			} else {
-				return `${head}${RESPONSE_START_MARK}${response}${RESPONSE_END_MARK}${tail}`;
+	/** Apply the response to the note while streaming, and write response to the file when it has been done. */
+	async applyResponse(response: string, isDone: boolean, targetKey: string, targetFile: TFile, basedDialogue: string) {
+		if (!isDone) {
+			const data = basedDialogue;
+			const out = replaceStringBetweenMarks(data, `${RESPONSE_START_MARK}${response}<span id='${targetKey}'></span>`, RESPONSE_START_MARK, RESPONSE_END_MARK);
+			const els = document.querySelectorAll(`span#${targetKey}`);
+			const el = els.length > 0 ? els[0] as HTMLSpanElement : undefined;
+			if (el) {
+				const p = el.matchParent("div.obsidian-fx") as HTMLDivElement;
+				this.renderMarkdownToEl(p, out, targetFile.path)
 			}
+			return;
+		}
+		await this.app.vault.process(targetFile, (data) => {
+			const out = replaceStringBetweenMarks(data, `${response}\n`, RESPONSE_START_MARK, RESPONSE_END_MARK);
+			return out;
 		});
-		this.app.vault.trigger("modify", file);
+		this.app.vault.trigger("modify", targetFile);
 
 	}
+	renderMarkdownToEl(fx: HTMLDivElement, source: string, sourcePath: string) {
+		// All pragmatic comments will be hidden, but just simple comments are shown as with strikethrough.
+		const renderSource1 = `${source.replace(/^(##.*)$/mg, "<!-- $1 -->").replace(/^#(.*?)\s*$/mg, "~~$1~~")}`;
+		// All lines can be deleted or cancelled
+		const renderSource2 = renderSource1.split("\n").map((e, i) =>
+			e.contains(RESPONSE_START_MARK) ? e.split(roleAssistant).join(`<a href="#" class="fx-toggle-comment" data-line="${i}" data-cancel="1">✋</a>${roleAssistant}`) : e.split(roleAssistant).join(`<a href="#" class="fx-toggle-comment" data-line="${i}">🗑️</a>${roleAssistant}`).split(roleUser).join(`<a href="#" class="fx-toggle-comment"  data-line="${i}">🗑️</a>${roleUser}`))
+			.join("\n")
+		fx.replaceChildren("");
 
+		const renderSource = `> [!consult]+\n${renderSource2.replace(/^/mg, "> ")}`;
+		MarkdownRenderer.renderMarkdown(renderSource, fx, sourcePath, this).then(() => {
+			document.querySelectorAll(".fx-toggle-comment").forEach((e) => {
+				e.addEventListener("click", (evt) => {
+					evt.preventDefault();
+					const el = e.matchParent("div.obsidian-fx") as HTMLDivElement;
+					if (!el) return;
+					const filename = el.getAttribute("data-source-path");
+					const line = Number.parseInt(el.getAttribute("data-context-line") as string);
+					const commentLine = Number.parseInt(e.getAttribute("data-line") as string);
+					if (!filename) return;
+					const f = this.app.vault.getAbstractFileByPath(filename);
+					if (!(f instanceof TFile)) {
+						new Notice("Could not find the file", 3000);
+						return;
+					}
+					const cancel = e.getAttribute("data-cancel");
+					if (cancel == "1") {
+						if (this.request) {
+							this.request.abort();
+							this.request = undefined;
+							new Notice("Cancelled!", 5000);
+						}
+					}
+					this.app.vault.process(f, (data) => {
+						const f = data.split("\n");
+						// Toggle commenting out, or remove it if it has been cancelled.
+						f[line + commentLine + 1] = cancel == "1" ? "" : f[line + commentLine + 1].startsWith("#") ? f[line + commentLine + 1].substring(1) : `#${f[line + commentLine + 1]}`;
+						return f.join("\n");
+					});
+				})
+			});
+		})
+	}
 	async onload() {
 		await this.loadSettings();
 
 		this.registerMarkdownCodeBlockProcessor("aichat", (source, el, ctx) => {
-
+			const uniq = `obsidian-fx-${Date.now()}-${~~(Math.random() * 10000)}`;
+			const fx = el.createDiv({ text: "", cls: ["obsidian-fx", uniq] });
+			// Store the path and the line to modify later.
 			const sourcePath = ctx.sourcePath;
-			const fx = el.createDiv({ text: "", cls: ["obsidian-fx"] });
-			const renderSource = `> [!consult]+\n${source.replace(/^(#.*)$/mg, "<!-- $1 -->").replace(/^/mg, "> ")}`;
-			MarkdownRenderer.renderMarkdown(renderSource, fx, sourcePath, this)
+			const secInfo = ctx.getSectionInfo(el);
+			fx.setAttribute("data-source-path", sourcePath);
+			fx.setAttribute("data-context-line", `${secInfo?.lineStart}`);
+			this.renderMarkdownToEl(fx, source, sourcePath);
 			const ops = el.createDiv({ text: "", cls: ["obsidian-fx-buttons"] });
 			const span = ops.createEl("span", { text: "USER:", cls: "label" });
 			const input = ops.createEl("textarea", { cls: "ai-dialogue-input" });
 			const submit = ops.createEl("button", { text: "🤵" });
-			const secInfo = ctx.getSectionInfo(el);
 			ops.appendChild(span);
 			ops.appendChild(input)
 			ops.appendChild(submit);
-			fx.appendChild(ops)
-			el.replaceWith(fx);
-			// ctx.
+			el.appendChild(fx);
+			el.appendChild(ops)
 			const c = new AbortController();
 			const submitFunc = async () => {
 				if (source.contains(RESPONSE_START_MARK)) {
@@ -174,7 +231,7 @@ export default class RingASecretaryPlugin extends Plugin {
 					return;
 				}
 				//Note: ESCAPE MARKDOWN?
-				const newBody = `${dataMain}\n${roleUser}: ${text}\n \n${roleAssistant}: ${WAIT_MARK_INITIAL}`;
+				const newBody = `${dataMain}\n${roleUser}: ${text}\n \n${roleAssistant}: ${WAIT_MARK_INITIAL}<span id='${uniq}'></span>${RESPONSE_END_MARK}`;
 
 				await this.app.vault.process(f, (data) => {
 					const dataList = data.split("\n");
@@ -184,10 +241,9 @@ export default class RingASecretaryPlugin extends Plugin {
 
 					return dataBefore.join("\n") + `\n${newBody}\n` + dataAfter.join("\n");
 				});
-				this.processingFile = f;
 				setTimeout(() => {
-					this.askToAI(newBody).catch(err => {
-						this.writeResponseToFile(`Something has been occurred: ${err?.message}`, true);
+					this.askToAI(newBody, f, uniq).catch(err => {
+						this.applyResponse(`Something has been occurred: ${err?.message}`, true, uniq, f, newBody);
 						new Notice(`Something has been occurred: ${err?.message}`);
 					});
 				}, 20);

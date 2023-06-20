@@ -33,7 +33,7 @@ If your plugin does not need CSS, delete this file.
 }
 
 
-.obsidian-fx textarea {
+.obsidian-fx-buttons textarea {
 	flex-grow: 1;
 	min-height: 3ex;
 	resize: vertical;
@@ -50,10 +50,14 @@ If your plugin does not need CSS, delete this file.
 	font-family: var(--font-editor);
 }
 
-.obsidian-fx textarea:focus {
+.obsidian-fx-buttons textarea:focus {
 	-webkit-appearance: none;
 	outline: none;
 	outline-style: none;
+}
+
+.obsidian-fx:has(.callout.is-collapsed)+.obsidian-fx-buttons {
+	display: none;
 }
 
 .ofx-thinking {
